@@ -1,0 +1,15 @@
+html, body, #__next {
+  height: 100%;
+  margin: 0;
+  font-family: Inter, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  background: #f9fafb;
+  color: #111827;
+}
+a { color: inherit; text-decoration: none; }
+input, textarea, button {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font: inherit;
+}
+button { cursor: pointer; background: #10b981; color: white; border: none; }
