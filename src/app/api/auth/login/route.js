@@ -1,19 +1,84 @@
-import { connectDB } from '@/lib/db'
-import User from '@/models/User'
+import { connectDB } from '../../../../lib/db'
+import User from '../../../../models/User'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { 
+  createApiHandler, 
+  ApiResponse, 
+  ValidationError, 
+  AuthenticationError,
+  sanitizeObject,
+  validateRequired,
+  jsonResponse,
+  jsonError,
+  withRetry
+} from '../../../../utils/apiHelpers'
 
 const secret = process.env.JWT_SECRET || 'secret'
 
-export async function POST(request) {
+async function loginHandler(request) {
   const body = await request.json()
-  const { email, password } = body
-  if (!email || !password) return new Response(JSON.stringify({ error: 'Missing fields' }), { status: 400 })
-  await connectDB()
-  const user = await User.findOne({ email })
-  if (!user) return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401 })
-  const ok = await bcrypt.compare(password, user.password)
-  if (!ok) return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401 })
-  const token = jwt.sign({ id: user._id, email: user.email }, secret, { expiresIn: '7d' })
-  return new Response(JSON.stringify({ token }), { status: 200 })
+  const sanitizedBody = sanitizeObject(body)
+  
+  // Validate required fields
+  validateRequired(sanitizedBody, ['email', 'password'])
+  
+  const { email, password } = sanitizedBody
+  
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) {
+    throw new ValidationError('Invalid email format', {
+      email: 'Please enter a valid email address'
+    })
+  }
+  
+  // Connect to database with retry logic
+  await withRetry(() => connectDB())
+  
+  // Find user
+  const user = await User.findOne({ 
+    email: email.toLowerCase().trim() 
+  }).select('+password')
+  
+  if (!user) {
+    throw new AuthenticationError('Invalid email or password')
+  }
+  
+  // Verify password
+  const isPasswordValid = await bcrypt.compare(password, user.password)
+  if (!isPasswordValid) {
+    throw new AuthenticationError('Invalid email or password')
+  }
+  
+  // Generate JWT token
+  const tokenPayload = {
+    id: user._id.toString(),
+    email: user.email
+  }
+  
+  const token = jwt.sign(tokenPayload, secret, { 
+    expiresIn: '7d',
+    issuer: 'zero-waste-marketplace',
+    audience: 'zero-waste-users'
+  })
+  
+  // Prepare user data (exclude sensitive information)
+  const userData = {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    avatar: user.avatar,
+    isVerified: user.isVerified,
+    createdAt: user.createdAt
+  }
+  
+  return jsonResponse({
+    token,
+    user: userData,
+    expiresIn: '7d'
+  }, 200)
 }
+
+export const POST = createApiHandler(loginHandler)

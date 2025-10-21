@@ -1,21 +1,22 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '../../contexts/AuthContext'
+import { useParams, useRouter } from 'next/navigation'
+import { useAuth } from '../../../../contexts/AuthContext'
 
-export default function AddItemPage() {
+export default function EditItemPage() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     category: '',
     location: '',
-    imageUrl: ''
+    imageUrl: '',
+    status: 'available'
   })
   const [errors, setErrors] = useState({})
-  const [loading, setLoading] = useState(false)
-  const [imageFile, setImageFile] = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
-  const { user, isAuthenticated } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const { id } = useParams()
+  const { isAuthenticated, user } = useAuth()
   const router = useRouter()
 
   const categories = [
@@ -23,11 +24,57 @@ export default function AddItemPage() {
     'Sports & Recreation', 'Tools', 'Art & Crafts', 'Food & Beverages', 'Other'
   ]
 
+  const statusOptions = [
+    { value: 'available', label: 'Available' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'sold', label: 'Sold/Traded' },
+    { value: 'withdrawn', label: 'Withdrawn' }
+  ]
+
   useEffect(() => {
     if (!isAuthenticated) {
       router.push('/auth/login')
+      return
     }
-  }, [isAuthenticated])
+    fetchItem()
+  }, [isAuthenticated, id])
+
+  const fetchItem = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`/api/items/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      
+      if (response.ok) {
+        const item = await response.json()
+        
+        // Check if user owns this item
+        if (item.owner._id !== user?.id) {
+          router.push('/my-items')
+          return
+        }
+        
+        setFormData({
+          title: item.title,
+          description: item.description || '',
+          category: item.category || '',
+          location: item.location || '',
+          imageUrl: item.imageUrl || '',
+          status: item.status || 'available'
+        })
+      } else {
+        router.push('/my-items')
+      }
+    } catch (error) {
+      console.error('Error fetching item:', error)
+      router.push('/my-items')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const validateForm = () => {
     const newErrors = {}
@@ -72,65 +119,33 @@ export default function AddItemPage() {
     }
   }
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      setImageFile(file)
-      
-      // Create preview
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setImagePreview(reader.result)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const uploadImage = async () => {
-    if (!imageFile) return null
-    
-    // In a real app, you would upload to Cloudinary or similar service
-    // For now, we'll just use a placeholder URL
-    return 'https://via.placeholder.com/400x300?text=Item+Image'
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     
     if (!validateForm()) return
     
-    setLoading(true)
+    setSaving(true)
     try {
-      let imageUrl = formData.imageUrl
-      
-      if (imageFile) {
-        imageUrl = await uploadImage()
-      }
-      
       const token = localStorage.getItem('token')
-      const response = await fetch('/api/items', {
-        method: 'POST',
+      const response = await fetch(`/api/items/${id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          ...formData,
-          imageUrl,
-          owner: user?.id
-        })
+        body: JSON.stringify(formData)
       })
       
       if (response.ok) {
-        router.push('/items?message=Item added successfully!')
+        router.push(`/items/${id}?message=Item updated successfully!`)
       } else {
         const data = await response.json()
-        setErrors({ general: data.error || 'Error adding item' })
+        setErrors({ general: data.error || 'Error updating item' })
       }
     } catch (error) {
       setErrors({ general: 'Network error. Please try again.' })
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
@@ -145,12 +160,23 @@ export default function AddItemPage() {
     )
   }
 
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="loading"></div>
+          <p>Loading item...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">Add New Item</h1>
-          <p className="text-gray-600">Share something amazing with your community</p>
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">Edit Item</h1>
+          <p className="text-gray-600">Update your item details</p>
         </div>
 
         <div className="card">
@@ -215,47 +241,43 @@ export default function AddItemPage() {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="location" className="form-label">
-                    Location *
+                  <label htmlFor="status" className="form-label">
+                    Status
                   </label>
-                  <input
-                    type="text"
-                    id="location"
-                    name="location"
-                    value={formData.location}
+                  <select
+                    id="status"
+                    name="status"
+                    value={formData.status}
                     onChange={handleChange}
-                    placeholder="City, neighborhood, or area"
-                    className={errors.location ? 'border-red-500' : ''}
-                  />
-                  {errors.location && <p className="form-error">{errors.location}</p>}
+                  >
+                    {statusOptions.map(status => (
+                      <option key={status.value} value={status.value}>
+                        {status.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="image" className="form-label">
-                  Upload Image
+                <label htmlFor="location" className="form-label">
+                  Location *
                 </label>
                 <input
-                  type="file"
-                  id="image"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-center"
+                  type="text"
+                  id="location"
+                  name="location"
+                  value={formData.location}
+                  onChange={handleChange}
+                  placeholder="City, neighborhood, or area"
+                  className={errors.location ? 'border-red-500' : ''}
                 />
-                {imagePreview && (
-                  <div className="mt-4">
-                    <img 
-                      src={imagePreview} 
-                      alt="Preview"
-                      className="w-full h-48 object-cover rounded-lg"
-                    />
-                  </div>
-                )}
+                {errors.location && <p className="form-error">{errors.location}</p>}
               </div>
 
               <div className="form-group">
                 <label htmlFor="imageUrl" className="form-label">
-                  Or Image URL
+                  Image URL
                 </label>
                 <input
                   type="url"
@@ -265,32 +287,41 @@ export default function AddItemPage() {
                   onChange={handleChange}
                   placeholder="https://example.com/image.jpg"
                 />
-                <p className="text-sm text-gray-500 mt-1">
-                  You can either upload an image or provide a URL
-                </p>
+                {formData.imageUrl && (
+                  <div className="mt-4">
+                    <img 
+                      src={formData.imageUrl} 
+                      alt="Preview"
+                      className="w-full h-48 object-cover rounded-lg"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                      }}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4">
                 <button 
                   type="submit" 
                   className="btn btn-primary flex-1"
-                  disabled={loading}
+                  disabled={saving}
                 >
-                  {loading ? (
+                  {saving ? (
                     <>
                       <span className="loading"></span>
-                      Adding Item...
+                      Updating Item...
                     </>
                   ) : (
                     <>
-                      ➕ Add Item
+                      💾 Update Item
                     </>
                   )}
                 </button>
                 
                 <button 
                   type="button"
-                  onClick={() => router.push('/items')}
+                  onClick={() => router.push(`/items/${id}`)}
                   className="btn btn-outline flex-1"
                 >
                   Cancel
